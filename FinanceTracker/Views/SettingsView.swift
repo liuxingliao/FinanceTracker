@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import ObjectiveC
 
 struct SettingsView: View {
     @StateObject private var accountViewModel = AccountViewModel()
@@ -191,7 +192,7 @@ struct AccountRowView: View {
             Spacer()
             
             VStack(alignment: .trailing) {
-                Text(formatCurrency(account.balance))
+                Text(FormatterUtils.formatCurrency(account.balance))
                     .font(.headline)
                     .fontWeight(.semibold)
                 
@@ -724,12 +725,68 @@ struct MemberEditView: View {
 // MARK: - Backup & Restore Views
 struct BackupView: View {
     @Environment(\.presentationMode) var presentationMode
+    @State private var backupStatus: String = ""
+    @State private var showAlert = false
+    @State private var alertMessage = ""
+    @State private var createdBackupURL: URL?
+    @State private var showCleanConfirmation = false
     
     var body: some View {
         NavigationView {
-            VStack {
-                Text("本地备份功能正在开发中...")
-                    .font(.title2)
+            VStack(spacing: 20) {
+                Text("点击下方按钮创建新的备份文件")
+                    .font(.body)
+                    .foregroundColor(.secondary)
+                
+                Button(action: createBackup) {
+                    Text("创建备份")
+                        .font(.title2)
+                        .foregroundColor(.white)
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color.blue)
+                        .cornerRadius(10)
+                }
+                .padding(.horizontal)
+                
+                if let backupURL = createdBackupURL {
+                    VStack(spacing: 10) {
+                        Text("备份已创建:")
+                            .font(.headline)
+                        
+                        Text(backupURL.lastPathComponent)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                        
+                        Button(action: exportBackup) {
+                            Text("导出备份文件")
+                                .font(.title2)
+                                .foregroundColor(.white)
+                                .padding()
+                                .frame(maxWidth: .infinity)
+                                .background(Color.green)
+                                .cornerRadius(10)
+                        }
+                        .padding(.horizontal)
+                    }
+                }
+                
+                Button(action: {
+                    showCleanConfirmation = true
+                }) {
+                    Text("清理备份文件")
+                        .font(.title2)
+                        .foregroundColor(.white)
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color.red)
+                        .cornerRadius(10)
+                }
+                .padding(.horizontal)
+                
+                Text(backupStatus)
+                    .font(.caption)
                     .foregroundColor(.secondary)
                 
                 Spacer()
@@ -743,19 +800,165 @@ struct BackupView: View {
                     }
                 }
             }
+            .alert("提示", isPresented: $showAlert) {
+                Button("确定") { }
+            } message: {
+                Text(alertMessage)
+            }
+            .alert("确认清理", isPresented: $showCleanConfirmation) {
+                Button("取消") { }
+                Button("确认清理") {
+                    cleanBackupFiles()
+                }
+            } message: {
+                Text("确定要清理默认路径下的所有备份文件吗？此操作不可撤销。")
+            }
         }
+    }
+    
+    private func createBackup() {
+        backupStatus = "正在创建备份..."
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            if let backupURL = BackupService.shared.createBackup() {
+                DispatchQueue.main.async {
+                    self.createdBackupURL = backupURL
+                    self.backupStatus = "备份已创建: \(backupURL.lastPathComponent)"
+                    self.alertMessage = "备份文件已生成，点击导出可将其保存到您选择的位置"
+                    self.showAlert = true
+                }
+            } else {
+                DispatchQueue.main.async {
+                    self.backupStatus = "备份创建失败"
+                    self.alertMessage = "无法创建备份文件，请重试"
+                    self.showAlert = true
+                }
+            }
+        }
+    }
+    
+    private func exportBackup() {
+        guard let backupURL = createdBackupURL else { return }
+        
+        BackupService.shared.exportBackupFile(backupURL) { success in
+            DispatchQueue.main.async {
+                if success {
+                    self.alertMessage = "备份文件已导出"
+                } else {
+                    self.alertMessage = "导出操作已取消或失败"
+                }
+                self.showAlert = true
+            }
+        }
+    }
+    
+    private func cleanBackupFiles() {
+        let success = BackupService.shared.cleanDefaultBackupDirectory()
+        
+        if success {
+            // 如果当前显示的备份文件是我们刚刚清理掉的，需要清除它
+            if let currentBackupURL = createdBackupURL,
+               let documentsDir = BackupService.shared.getDocumentsDirectory(),
+               currentBackupURL.deletingLastPathComponent() == documentsDir {
+                createdBackupURL = nil
+            }
+            
+            backupStatus = "备份文件已清理"
+            alertMessage = "默认路径下的备份文件已成功清理"
+        } else {
+            backupStatus = "清理失败"
+            alertMessage = "清理备份文件时发生错误"
+        }
+        showAlert = true
     }
 }
 
 struct RestoreView: View {
     @Environment(\.presentationMode) var presentationMode
+    @State private var backups: [URL] = []
+    @State private var selectedBackup: URL?
+    @State private var showAlert = false
+    @State private var alertMessage = ""
+    @State private var showRestoreConfirmation = false
+    @State private var selectedRestoreDirectory: URL?
+    @State private var importStatus = ""
     
     var body: some View {
         NavigationView {
             VStack {
-                Text("本地恢复功能正在开发中...")
-                    .font(.title2)
-                    .foregroundColor(.secondary)
+                HStack {
+                    Button(action: selectSingleBackupFile) {
+                        Text("导入文件")
+                            .font(.body)
+                            .foregroundColor(.white)
+                            .padding(.horizontal)
+                            .background(Color.blue)
+                            .cornerRadius(8)
+                    }
+                    
+                    Button(action: refreshBackups) {
+                        Text("刷新")
+                            .font(.body)
+                            .foregroundColor(.white)
+                            .padding(.horizontal)
+                            .background(Color.green)
+                            .cornerRadius(8)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.top)
+                
+                if !importStatus.isEmpty {
+                    Text(importStatus)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal)
+                }
+                
+                // 显示当前选择的目录
+                if let selectedDirectory = selectedRestoreDirectory {
+                    Text("当前路径: \(selectedDirectory.path)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+                
+                if backups.isEmpty {
+                    VStack {
+                        Text("暂无可用备份文件，请先导入文件或刷新列表")
+                            .font(.title2)
+                            .foregroundColor(.secondary)
+                            .padding()
+                        
+                        // 添加一个测试按钮，用于检查文档目录
+                        Button(action: checkDocumentsDirectory) {
+                            Text("检查文档目录")
+                                .font(.body)
+                                .foregroundColor(.white)
+                                .padding(.horizontal)
+                                .background(Color.orange)
+                                .cornerRadius(8)
+                        }
+                    }
+                } else {
+                    List(backups, id: \.self) { backup in
+                        Button(action: {
+                            selectedBackup = backup
+                            showRestoreConfirmation = true
+                        }) {
+                            VStack(alignment: .leading) {
+                                Text(backup.deletingPathExtension().lastPathComponent.replacingOccurrences(of: "_", with: " "))
+                                    .font(.headline)
+                                Text("创建时间: \(getFileCreationDate(backup))")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
                 
                 Spacer()
             }
@@ -768,15 +971,235 @@ struct RestoreView: View {
                     }
                 }
             }
+            .onAppear {
+                // 默认使用文档目录
+                selectedRestoreDirectory = BackupService.shared.getDocumentsDirectory()
+                loadBackups()
+            }
+            .alert("确认恢复", isPresented: $showRestoreConfirmation) {
+                Button("取消") { }
+                Button("确认恢复") {
+                    if let backup = selectedBackup {
+                        restoreBackup(backup)
+                    }
+                }
+            } message: {
+                Text("确定要从该备份恢复数据吗？这将覆盖当前的所有数据。")
+            }
+            .alert("提示", isPresented: $showAlert) {
+                Button("确定") { 
+                    if alertMessage == "数据已成功恢复" {
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                }
+            } message: {
+                Text(alertMessage)
+            }
         }
+    }
+    
+    private func selectSingleBackupFile() {
+        // 创建文档选择器
+        let documentPicker = UIDocumentPickerViewController(forOpeningContentTypes: [.json])
+        documentPicker.allowsMultipleSelection = false
+        
+        // 获取顶层视图控制器
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first else {
+            importStatus = "无法获取窗口"
+            return
+        }
+        
+        guard let topViewController = getTopViewController(from: window.rootViewController) else {
+            importStatus = "无法获取顶层视图控制器"
+            return
+        }
+        
+        // 创建一个强引用的委托实例
+        let pickerDelegate = SingleFileDocumentPickerDelegate { url in
+            // 注意：这里不能使用 [weak self]，因为 SwiftUI View 是结构体
+            DispatchQueue.main.async {
+                // 直接使用 self，因为这是在 SwiftUI View 中
+                self.importStatus = "选择了文件: \(url.lastPathComponent)\n路径: \(url.path)"
+                
+                // 检查文件是否存在
+                if FileManager.default.fileExists(atPath: url.path) {
+                    self.importStatus += "\n文件存在"
+                } else {
+                    self.importStatus += "\n文件不存在"
+                }
+                
+                // 导入选择的备份文件到应用文档目录
+                self.importStatus += "\n正在导入文件..."
+                DispatchQueue.global(qos: .userInitiated).async {
+                    if let importedURL = BackupService.shared.importBackupFile(from: url) {
+                        DispatchQueue.main.async {
+                            // 直接使用 self，因为这是在 SwiftUI View 中
+                            self.importStatus = "文件导入成功: \(importedURL.lastPathComponent)\n保存路径: \(importedURL.path)"
+                            // 导入成功后自动刷新列表
+                            self.loadBackups()
+                        }
+                    } else {
+                        DispatchQueue.main.async {
+                            // 直接使用 self，因为这是在 SwiftUI View 中
+                            self.importStatus = "文件导入失败\n请检查文件权限和格式"
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 保持委托的强引用
+        documentPicker.delegate = pickerDelegate
+        
+        // 创建一个静态键值用于关联对象
+        struct StaticKeys {
+            static var pickerDelegateKey = 0
+        }
+        
+        objc_setAssociatedObject(documentPicker, &StaticKeys.pickerDelegateKey, pickerDelegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        
+        // 展示文档选择器
+        topViewController.present(documentPicker, animated: true)
+    }
+    
+    // 获取顶层视图控制器的辅助函数
+    private func getTopViewController(from viewController: UIViewController?) -> UIViewController? {
+        guard let viewController = viewController else { return nil }
+        
+        var topViewController = viewController
+        while let presentedViewController = topViewController.presentedViewController {
+            topViewController = presentedViewController
+        }
+        
+        return topViewController
+    }
+
+    // 用于保持委托引用的键
+    private var pickerDelegateKey = 0
+    
+    private func refreshBackups() {
+        loadBackups()
+        importStatus = "列表已刷新"
+    }
+    
+    private func checkDocumentsDirectory() {
+        if let documentsDir = BackupService.shared.getDocumentsDirectory() {
+            importStatus = "文档目录: \(documentsDir.path)"
+            
+            // 检查目录是否存在
+            let fileManager = FileManager.default
+            if fileManager.fileExists(atPath: documentsDir.path) {
+                importStatus += "\n目录存在"
+                
+                // 尝试列出目录内容
+                do {
+                    let contents = try fileManager.contentsOfDirectory(atPath: documentsDir.path)
+                    importStatus += "\n文件数量: \(contents.count)"
+                    
+                    // 查找备份文件
+                    let backupFiles = contents.filter { $0.hasPrefix("FinanceTracker_backup_") && $0.hasSuffix(".json") }
+                    importStatus += "\n备份文件数量: \(backupFiles.count)"
+                    
+                    // 显示前几个备份文件名
+                    if !backupFiles.isEmpty {
+                        let displayFiles = backupFiles.prefix(5) // 只显示前5个
+                        importStatus += "\n备份文件列表:"
+                        for file in displayFiles {
+                            importStatus += "\n  - \(file)"
+                        }
+                    }
+                } catch {
+                    importStatus += "\n读取目录失败: \(error.localizedDescription)"
+                }
+            } else {
+                importStatus += "\n目录不存在"
+                
+                // 尝试创建目录
+                do {
+                    try fileManager.createDirectory(at: documentsDir, withIntermediateDirectories: true, attributes: nil)
+                    importStatus += "\n已创建目录"
+                } catch {
+                    importStatus += "\n创建目录失败: \(error.localizedDescription)"
+                }
+            }
+        } else {
+            importStatus = "无法获取文档目录"
+        }
+    }
+    
+    private func loadBackups() {
+        if let directory = selectedRestoreDirectory {
+            backups = BackupService.shared.getAvailableBackups(inDirectory: directory)
+            importStatus = "找到 \(backups.count) 个备份文件"
+        }
+    }
+    
+    private func restoreBackup(_ backupURL: URL) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let success = BackupService.shared.restoreFromBackup(backupURL: backupURL)
+            
+            DispatchQueue.main.async {
+                if success {
+                    alertMessage = "数据已成功恢复"
+                } else {
+                    alertMessage = "恢复数据失败"
+                }
+                showAlert = true
+            }
+        }
+    }
+    
+    private func getFileCreationDate(_ url: URL) -> String {
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            if let creationDate = attributes[.creationDate] as? Date {
+                let formatter = DateFormatter()
+                formatter.dateStyle = .medium
+                formatter.timeStyle = .short
+                return formatter.string(from: creationDate)
+            }
+        } catch {
+            print("无法获取文件创建日期: \(error)")
+        }
+        return "未知"
     }
 }
 
-private func formatCurrency(_ amount: Decimal) -> String {
-    let formatter = NumberFormatter()
-    formatter.numberStyle = .currency
-    formatter.locale = Locale.current
-    return formatter.string(from: NSDecimalNumber(decimal: amount)) ?? "\(amount)"
+class SingleFileDocumentPickerDelegate: NSObject, UIDocumentPickerDelegate {
+    private let completion: (URL) -> Void
+    
+    init(completion: @escaping (URL) -> Void) {
+        self.completion = completion
+    }
+    
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        if let selectedURL = urls.first {
+            completion(selectedURL)
+        }
+    }
+    
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        // 用户取消选择
+    }
+}
+
+class RestoreDocumentPickerDelegate: NSObject, UIDocumentPickerDelegate {
+    private let completion: (URL) -> Void
+    
+    init(completion: @escaping (URL) -> Void) {
+        self.completion = completion
+    }
+    
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        if let selectedURL = urls.first {
+            completion(selectedURL)
+        }
+    }
+    
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        // 用户取消选择
+    }
 }
 
 struct SettingsView_Previews: PreviewProvider {
