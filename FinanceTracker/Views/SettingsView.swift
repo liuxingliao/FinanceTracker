@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import UniformTypeIdentifiers
 import ObjectiveC
 
@@ -50,7 +51,7 @@ struct SettingsView: View {
                     HStack {
                         Text("开发者")
                         Spacer()
-                        Text("FinanceTracker Team")
+                        Text("刘星燎")
                     }
                 }
             }
@@ -999,8 +1000,8 @@ struct RestoreView: View {
     }
     
     private func selectSingleBackupFile() {
-        // 创建文档选择器
-        let documentPicker = UIDocumentPickerViewController(forOpeningContentTypes: [.json])
+        // 创建文档选择器，现在支持XLS文件
+        let documentPicker = UIDocumentPickerViewController(forOpeningContentTypes: [.data]) // 使用.data支持更多文件类型
         documentPicker.allowsMultipleSelection = false
         
         // 获取顶层视图控制器
@@ -1097,8 +1098,11 @@ struct RestoreView: View {
                     let contents = try fileManager.contentsOfDirectory(atPath: documentsDir.path)
                     importStatus += "\n文件数量: \(contents.count)"
                     
-                    // 查找备份文件
-                    let backupFiles = contents.filter { $0.hasPrefix("FinanceTracker_backup_") && $0.hasSuffix(".json") }
+                    // 查找备份文件，现在查找.csv和.json扩展名的文件（向后兼容）
+                    let backupFiles = contents.filter { 
+                        ($0.hasPrefix("FinanceTracker_backup_") && $0.hasSuffix(".csv")) ||
+                        ($0.hasPrefix("FinanceTracker_backup_") && $0.hasSuffix(".json"))
+                    }
                     importStatus += "\n备份文件数量: \(backupFiles.count)"
                     
                     // 显示前几个备份文件名
