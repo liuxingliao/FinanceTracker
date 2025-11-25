@@ -42,8 +42,36 @@ class PersistentDataService: DataServiceProtocol {
     private let allocationsKey = "FinanceTracker.Allocations"
     private let membersKey = "FinanceTracker.Members"
     
+    private let transferOutCategoryName = "转账-转出"
+    private let transferInCategoryName = "转账-转入"
+    
     init() {
         loadFromUserDefaults()
+        // 确保转账分类存在
+        ensureTransferCategoriesExist()
+    }
+    
+    // 确保转账分类存在
+    private func ensureTransferCategoriesExist() {
+        // 检查转账-转出分类是否存在
+        if !categories.contains(where: { $0.name == transferOutCategoryName }) {
+            categories.append(Category(
+                id: UUID(),
+                name: transferOutCategoryName,
+                type: .expense,
+                icon: "arrow.up.right"
+            ))
+        }
+        
+        // 检查转账-转入分类是否存在
+        if !categories.contains(where: { $0.name == transferInCategoryName }) {
+            categories.append(Category(
+                id: UUID(),
+                name: transferInCategoryName,
+                type: .income,
+                icon: "arrow.down.left"
+            ))
+        }
     }
     
     // MARK: - Account Methods
@@ -108,6 +136,9 @@ class PersistentDataService: DataServiceProtocol {
                 updatedAccount.balance += transaction.amount
             case .expense:
                 updatedAccount.balance -= transaction.amount
+            case .transfer:
+                // 转账不影响总余额，因为资金只是在账户间转移
+                break
             }
             accounts[accountIndex] = updatedAccount
         }
@@ -134,6 +165,9 @@ class PersistentDataService: DataServiceProtocol {
                     oldAccount.balance -= oldTransaction.amount
                 case .expense:
                     oldAccount.balance += oldTransaction.amount
+                case .transfer:
+                    // 转账不影响总余额，因为资金只是在账户间转移
+                    break
                 }
                 accounts[oldAccountIndex] = oldAccount
             }
@@ -146,6 +180,9 @@ class PersistentDataService: DataServiceProtocol {
                     newAccount.balance += transaction.amount
                 case .expense:
                     newAccount.balance -= transaction.amount
+                case .transfer:
+                    // 转账不影响总余额，因为资金只是在账户间转移
+                    break
                 }
                 accounts[newAccountIndex] = newAccount
             }
@@ -172,6 +209,9 @@ class PersistentDataService: DataServiceProtocol {
                 account.balance -= transaction.amount
             case .expense:
                 account.balance += transaction.amount
+            case .transfer:
+                // 转账不影响总余额，因为资金只是在账户间转移
+                break
             }
             accounts[accountIndex] = account
         }
@@ -352,6 +392,9 @@ class PersistentDataService: DataServiceProtocol {
            let decodedCategories = try? JSONDecoder().decode([Category].self, from: categoriesData) {
             categories = decodedCategories
         }
+        
+        // 确保转账分类存在
+        ensureTransferCategoriesExist()
         
         // Load loans
         if let loansData = UserDefaults.standard.data(forKey: loansKey),

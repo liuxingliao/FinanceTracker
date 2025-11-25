@@ -110,12 +110,12 @@ struct StatisticsView: View {
                 GridItem(.flexible()),
                 GridItem(.flexible())
             ], spacing: 15) {
-                SummaryCard(title: "总收入", value: formatCurrency(summary.totalIncome), color: .green)
-                SummaryCard(title: "总支出", value: formatCurrency(summary.totalExpense), color: .red)
-                SummaryCard(title: "净收入", value: formatCurrency(summary.netIncome), color: summary.netIncome >= 0 ? .green : .red)
+                SummaryCard(title: "总收入", value: formatCurrency(summary.totalIncome), color: .red)
+                SummaryCard(title: "总支出", value: formatCurrency(summary.totalExpense), color: .green)
+                SummaryCard(title: "净收入", value: formatCurrency(summary.netIncome), color: summary.netIncome >= 0 ? .red : .green)
                 SummaryCard(title: "借入", value: formatCurrency(summary.totalBorrowIn), color: .red)
                 SummaryCard(title: "借出", value: formatCurrency(summary.totalBorrowOut), color: .green)
-                SummaryCard(title: "净存款", value: formatCurrency(summary.netSavings), color: summary.netSavings >= 0 ? .green : .red)
+                SummaryCard(title: "净存款", value: formatCurrency(summary.netSavings), color: summary.netSavings >= 0 ? .red : .green)
             }
         }
         .padding()
@@ -134,22 +134,22 @@ struct StatisticsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("收入排行")
                         .font(.headline)
-                        .foregroundColor(.green)
+                        .foregroundColor(.red)
                     
                     let incomeRankings = getIncomeRankings()
                     ForEach(incomeRankings.indices, id: \.self) { index in
-                        RankingItem(rank: index + 1, item: incomeRankings[index].category, amount: incomeRankings[index].amount, color: .green)
+                        RankingItem(rank: index + 1, item: incomeRankings[index].category, amount: incomeRankings[index].amount, color: .red)
                     }
                 }
                 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("支出排行")
                         .font(.headline)
-                        .foregroundColor(.red)
+                        .foregroundColor(.green)
                     
                     let expenseRankings = getExpenseRankings()
                     ForEach(expenseRankings.indices, id: \.self) { index in
-                        RankingItem(rank: index + 1, item: expenseRankings[index].category, amount: expenseRankings[index].amount, color: .red)
+                        RankingItem(rank: index + 1, item: expenseRankings[index].category, amount: expenseRankings[index].amount, color: .green)
                     }
                 }
             }
@@ -434,9 +434,12 @@ struct StatisticsView: View {
         var incomeByCategory: [String: Decimal] = [:]
         
         for record in records {
-            if let transaction = record as? Transaction, transaction.type == .income {
-                let categoryName = viewModel.getCategoryName(withId: transaction.categoryId) ?? "未知分类"
-                incomeByCategory[categoryName, default: 0] += transaction.amount
+            if let transaction = record as? Transaction {
+                // 只统计收入类型的交易，排除转账
+                if transaction.type == .income {
+                    let categoryName = viewModel.getCategoryName(withId: transaction.categoryId) ?? "未知分类"
+                    incomeByCategory[categoryName, default: 0] += transaction.amount
+                }
             } else if let loan = record as? Loan, loan.type == .borrowIn {
                 incomeByCategory["借入", default: 0] += loan.amount
             }
@@ -454,9 +457,12 @@ struct StatisticsView: View {
         var expenseByCategory: [String: Decimal] = [:]
         
         for record in records {
-            if let transaction = record as? Transaction, transaction.type == .expense {
-                let categoryName = viewModel.getCategoryName(withId: transaction.categoryId) ?? "未知分类"
-                expenseByCategory[categoryName, default: 0] += transaction.amount
+            if let transaction = record as? Transaction {
+                // 只统计支出类型的交易，排除转账
+                if transaction.type == .expense {
+                    let categoryName = viewModel.getCategoryName(withId: transaction.categoryId) ?? "未知分类"
+                    expenseByCategory[categoryName, default: 0] += transaction.amount
+                }
             } else if let loan = record as? Loan, loan.type == .borrowOut {
                 expenseByCategory["借出", default: 0] += loan.amount
             }
@@ -551,6 +557,9 @@ struct StatisticsView: View {
                     totalIncome += transaction.amount
                 case .expense:
                     totalExpense += transaction.amount
+                case .transfer:
+                    // 转账不影响总收入和总支出的计算
+                    break
                 }
             } else if let loan = record as? Loan {
                 switch loan.type {

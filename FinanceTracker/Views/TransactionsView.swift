@@ -188,7 +188,7 @@ struct TransactionsView: View {
                         Text(formatCurrency(stats.totalIncome))
                             .font(.caption)
                             .fontWeight(.semibold)
-                            .foregroundColor(.green)
+                            .foregroundColor(.red)
                     }
                 }
                 
@@ -200,7 +200,7 @@ struct TransactionsView: View {
                         Text(formatCurrency(stats.totalExpense))
                             .font(.caption)
                             .fontWeight(.semibold)
-                            .foregroundColor(.red)
+                            .foregroundColor(.green)
                     }
                 }
                 
@@ -211,7 +211,7 @@ struct TransactionsView: View {
                     Text(formatCurrency(stats.netIncome))
                         .font(.caption)
                         .fontWeight(.semibold)
-                        .foregroundColor(stats.netIncome >= 0 ? .green : .red)
+                        .foregroundColor(stats.netIncome >= 0 ? .red : .green)
                 }
             }
             .padding(.horizontal, 8)
@@ -234,6 +234,9 @@ struct TransactionsView: View {
                     totalIncome += transaction.amount
                 case .expense:
                     totalExpense += transaction.amount
+                case .transfer:
+                    // 转账不影响总收入和总支出的计算
+                    break
                 }
             } else if let loan = record as? Loan {
                 // 贷款不影响收入支出统计，但影响净收入
@@ -343,14 +346,16 @@ struct TransactionRowView: View {
             // 分类图标和名称
             VStack(alignment: .center) {
                 Circle()
-                    .fill(transaction.type == .income ? Color.green : Color.red)
+                    .fill(transaction.type == .income ? Color.red : 
+                          transaction.type == .expense ? Color.green : Color.blue)
                     .frame(width: 40, height: 40)
                     .overlay(
-                        Image(systemName: transaction.type == .income ? "arrow.down" : "arrow.up")
+                        Image(systemName: transaction.type == .income ? "arrow.down" : 
+                              transaction.type == .expense ? "arrow.up" : "arrow.right.arrow.left")
                             .foregroundColor(.white)
                     )
                 
-                Text(categoryName)
+                Text(transaction.type == .transfer ? "转账" : categoryName)
                     .font(.caption)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
@@ -382,7 +387,8 @@ struct TransactionRowView: View {
                 Text(formatCurrency(transaction.amount))
                     .font(.headline)
                     .fontWeight(.semibold)
-                    .foregroundColor(transaction.type == .income ? .green : .red)
+                    .foregroundColor(transaction.type == .income ? .red : 
+                                   transaction.type == .expense ? .green : .blue)
             }
         }
         .padding(.vertical, 8)
@@ -402,8 +408,12 @@ struct LoanRowView: View {
                     .fill(loan.type == .borrowIn ? Color.red : Color.green)
                     .frame(width: 40, height: 40)
                     .overlay(
-                        Image(systemName: loan.type == .borrowIn ? "arrow.down" : "arrow.up")
-                            .foregroundColor(.white)
+                        Image(systemName: "circle.fill")
+                            .foregroundColor(.yellow)
+                    )
+                    .overlay(
+                        Image(systemName: "circle")
+                            .foregroundColor(.orange)
                     )
                 
                 Text(loan.type == .borrowIn ? "借入" : "借出")
@@ -498,12 +508,20 @@ struct AddTransactionView: View {
                         }
                     }
                     
-                    if !categories.isEmpty {
-                        Picker("分类", selection: $selectedCategoryId) {
-                            ForEach(categories.filter { $0.type.rawValue == selectedType.rawValue }, id: \.id) { category in
-                                Text(category.name).tag(category.id as UUID?)
+                    // 对于转账类型，我们可能需要特殊的处理
+                    if selectedType != .transfer {
+                        if !categories.isEmpty {
+                            Picker("分类", selection: $selectedCategoryId) {
+                                ForEach(categories.filter { $0.type.rawValue == selectedType.rawValue }, id: \.id) { category in
+                                    Text(category.name).tag(category.id as UUID?)
+                                }
                             }
                         }
+                    } else {
+                        // 转账类型使用默认分类
+                        Text("转账将使用默认分类")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                     
                     if !members.isEmpty {
@@ -534,13 +552,23 @@ struct AddTransactionView: View {
                         guard let amount = Decimal(string: amountString),
                               let accountId = selectedAccountId,
                               let categoryId = selectedCategoryId else {
+                            // 对于转账类型，我们使用默认的分类ID
+                            guard let amount = Decimal(string: amountString),
+                                  let accountId = selectedAccountId else {
+                                return
+                            }
+                            
+                            let transferCategoryId = UUID() // 使用默认分类ID
+                            onAdd(amount, selectedType, accountId, transferCategoryId, selectedMemberId, date, note.isEmpty ? nil : note)
+                            presentationMode.wrappedValue.dismiss()
                             return
                         }
                         
                         onAdd(amount, selectedType, accountId, categoryId, selectedMemberId, date, note.isEmpty ? nil : note)
                         presentationMode.wrappedValue.dismiss()
                     }
-                    .disabled(amountString.isEmpty || selectedAccountId == nil || selectedCategoryId == nil)
+                    .disabled(amountString.isEmpty || selectedAccountId == nil || 
+                             (selectedType != .transfer && selectedCategoryId == nil))
                 }
             }
         }

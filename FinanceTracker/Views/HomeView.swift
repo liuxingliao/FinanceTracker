@@ -9,6 +9,7 @@ struct HomeView: View {
     @State private var showingIncomeView = false
     @State private var showingExpenseView = false
     @State private var showingLoanView = false
+    @State private var showingTransferView = false
     
     var body: some View {
         NavigationView {
@@ -34,6 +35,10 @@ struct HomeView: View {
                     onLoanTap: {
                         reloadData()
                         showingLoanView = true
+                    },
+                    onTransferTap: {
+                        reloadData()
+                        showingTransferView = true
                     }
                 )
                 
@@ -157,6 +162,49 @@ struct HomeView: View {
                     note: note,
                     isSettled: isSettled
                 )
+                // 发送交易更新通知
+                NotificationCenter.default.post(name: .transactionsDidUpdate, object: nil)
+                // 刷新主页数据
+                viewModel.loadData()
+                // 更新各个ViewModel数据
+                reloadData()
+            }
+        }
+        .sheet(isPresented: $showingTransferView) {
+            TransferView(
+                accountViewModel: accountViewModel,
+                memberViewModel: memberViewModel
+            ) { amount, fromAccountId, toAccountId, memberId, date, note in
+                // 处理转账添加逻辑
+                let transactionViewModel = TransactionViewModel()
+                
+                // 获取转账分类ID
+                let transferCategoryIds = transactionViewModel.getTransferCategoryIds()
+                let transferOutCategoryId = transferCategoryIds.transferOutId ?? UUID()
+                let transferInCategoryId = transferCategoryIds.transferInId ?? UUID()
+                
+                // 添加转出记录（支出）
+                transactionViewModel.addTransaction(
+                    amount: amount,
+                    type: .expense,
+                    accountId: fromAccountId,
+                    categoryId: transferOutCategoryId,
+                    memberId: memberId,
+                    date: date,
+                    note: "转出" + (note != nil ? ": " + note! : "")
+                )
+                
+                // 添加转入记录（收入）
+                transactionViewModel.addTransaction(
+                    amount: amount,
+                    type: .income,
+                    accountId: toAccountId,
+                    categoryId: transferInCategoryId,
+                    memberId: memberId,
+                    date: date,
+                    note: "转入" + (note != nil ? ": " + note! : "")
+                )
+                
                 // 发送交易更新通知
                 NotificationCenter.default.post(name: .transactionsDidUpdate, object: nil)
                 // 刷新主页数据
@@ -298,6 +346,7 @@ struct QuickActionsView: View {
     let onIncomeTap: () -> Void
     let onExpenseTap: () -> Void
     let onLoanTap: () -> Void
+    let onTransferTap: () -> Void
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -307,15 +356,19 @@ struct QuickActionsView: View {
             
             HStack(spacing: 16) {
                 Button(action: onIncomeTap) {
-                    QuickActionButton(title: "收入", color: .green)
+                    QuickActionButton(title: "收入", color: .red)
                 }
                 
                 Button(action: onExpenseTap) {
-                    QuickActionButton(title: "支出", color: .red)
+                    QuickActionButton(title: "支出", color: .green)
                 }
                 
                 Button(action: onLoanTap) {
                     QuickActionButton(title: "借贷", color: .orange)
+                }
+                
+                Button(action: onTransferTap) {
+                    QuickActionButton(title: "转账", color: .blue)
                 }
             }
             .padding(.horizontal)
@@ -339,9 +392,26 @@ struct QuickActionButton: View {
                         .stroke(color, lineWidth: 2)
                         .frame(width: 50, height: 50)
                         .overlay(
-                            Image(systemName: title == "收入" ? "arrow.down" : 
-                                  title == "支出" ? "arrow.up" : "arrow.left.arrow.right")
-                                .foregroundColor(color)
+                            Group {
+                                if title == "收入" {
+                                    Image(systemName: "arrow.down")
+                                        .foregroundColor(.red)
+                                } else if title == "支出" {
+                                    Image(systemName: "arrow.up")
+                                        .foregroundColor(.green)
+                                } else if title == "借贷" {
+                                    ZStack {
+                                        Image(systemName: "circle.fill")
+                                            .foregroundColor(.yellow)
+                                        Image(systemName: "circle")
+                                            .foregroundColor(.orange)
+                                    }
+                                    .foregroundColor(color)
+                                } else { // 转账
+                                    Image(systemName: "arrow.right.arrow.left")
+                                        .foregroundColor(color)
+                                }
+                            }
                         )
                 )
             

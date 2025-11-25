@@ -90,7 +90,24 @@ class TransactionViewModel: ObservableObject {
     
     /// 根据ID获取分类名称
     func getCategoryName(withId id: UUID) -> String? {
-        return categories.first { $0.id == id }?.name
+        // 检查是否是转账分类
+        if let category = categories.first(where: { $0.id == id }) {
+            return category.name
+        }
+        
+        // 如果找不到匹配的分类，返回默认值
+        return "未知分类"
+    }
+    
+    /// 获取转账分类ID
+    func getTransferCategoryIds() -> (transferOutId: UUID?, transferInId: UUID?) {
+        var transferOutId: UUID?
+        var transferInId: UUID?
+        
+        transferOutId = categories.first { $0.name == "转账-转出" }?.id
+        transferInId = categories.first { $0.name == "转账-转入" }?.id
+        
+        return (transferOutId, transferInId)
     }
     
     /// 根据ID获取成员名称

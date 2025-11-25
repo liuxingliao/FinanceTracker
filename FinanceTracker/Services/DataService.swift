@@ -55,7 +55,10 @@ protocol DataServiceProtocol {
 class InMemoryDataService: DataServiceProtocol {
     private var accounts: [Account] = []
     private var transactions: [Transaction] = []
-    private var categories: [Category] = []
+    private var categories: [Category] = [
+        Category(id: UUID(), name: "转账-转出", type: .expense, icon: "arrow.up.right"),
+        Category(id: UUID(), name: "转账-转入", type: .income, icon: "arrow.down.left")
+    ]
     private var loans: [Loan] = []
     private var allocations: [IncomeAllocation] = []
     private var members: [Member] = []
